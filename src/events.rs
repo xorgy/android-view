@@ -12,7 +12,10 @@ use num_enum::FromPrimitive;
 use ui_events::{
     ScrollDelta,
     keyboard::{KeyboardEvent, Modifiers},
-    pointer::{ContactGeometry, PointerEvent, PointerId, PointerState, PointerUpdate},
+    pointer::{
+        ContactGeometry, PointerButtonEvent, PointerEvent, PointerGestureEvent, PointerId,
+        PointerScrollEvent, PointerUpdate,
+    },
 };
 
 use crate::ViewConfiguration;
@@ -439,6 +442,8 @@ impl<'local> MotionEvent<'local> {
                 x: self.axis(env, Axis::X, action_index) as f64,
                 y: self.axis(env, Axis::Y, action_index) as f64,
             },
+            // `TapCounter` will attach the scale.
+            scale_factor: 1.0,
             buttons,
             // `TapCounter` will attach an appropriate count.
             count: 0,
@@ -469,16 +474,18 @@ impl<'local> MotionEvent<'local> {
         };
 
         Some(match action {
-            MotionAction::Down | MotionAction::PointerDown => PointerEvent::Down {
+            MotionAction::Down | MotionAction::PointerDown => {
+                PointerEvent::Down(PointerButtonEvent {
+                    pointer,
+                    state,
+                    button,
+                })
+            }
+            MotionAction::Up | MotionAction::PointerUp => PointerEvent::Up(PointerButtonEvent {
                 pointer,
                 state,
                 button,
-            },
-            MotionAction::Up | MotionAction::PointerUp => PointerEvent::Up {
-                pointer,
-                state,
-                button,
-            },
+            }),
             MotionAction::Move | MotionAction::HoverMove => {
                 let hsz = self.history_size(env);
                 let mut coalesced: Vec<PointerState> = vec![state.clone(); hsz as usize];
@@ -531,7 +538,7 @@ impl<'local> MotionEvent<'local> {
             MotionAction::Cancel => PointerEvent::Cancel(pointer),
             MotionAction::HoverEnter => PointerEvent::Enter(pointer),
             MotionAction::HoverExit => PointerEvent::Leave(pointer),
-            MotionAction::Scroll => PointerEvent::Scroll {
+            MotionAction::Scroll => PointerEvent::Scroll(PointerScrollEvent {
                 pointer,
                 delta: ScrollDelta::PixelDelta(PhysicalPosition::<f64> {
                     x: (self.axis(env, Axis::Hscroll, action_index)
@@ -540,7 +547,7 @@ impl<'local> MotionEvent<'local> {
                         * vc.scaled_vertical_scroll_factor) as f64,
                 }),
                 state,
-            },
+            }),
             _ => {
                 // Other current `MotionAction` values relate to gamepad/joystick buttons;
                 // ui-events doesn't currently have types for these, so consider them unhandled.
@@ -610,137 +617,121 @@ struct TapState {
 pub struct TapCounter {
     /// The `ViewConfiguration` which configures tap counting.
     pub vc: ViewConfiguration,
+    /// The scale factor.
+    pub scale_factor: f64,
     /// Recent taps which can be used for tap counting.
     taps: Vec<TapState>,
 }
 
 impl TapCounter {
     /// Make a new `TapCounter` with `ViewConfiguration` from your view.
-    pub fn new(vc: ViewConfiguration) -> Self {
-        Self { vc, taps: vec![] }
+    pub fn new(vc: ViewConfiguration, scale_factor: f64) -> Self {
+        Self {
+            vc,
+            scale_factor,
+            taps: vec![],
+        }
     }
 
     /// Enhance a `PointerEvent` with `count`.
     ///
-    pub fn attach_count(&mut self, e: PointerEvent) -> PointerEvent {
+    pub fn attach_count(&mut self, mut e: PointerEvent) -> PointerEvent {
         match e {
-            PointerEvent::Down {
-                button,
+            PointerEvent::Down(PointerButtonEvent {
                 pointer,
-                state,
-            } => {
-                let e = if let Some(i) =
-                    self.taps.iter().position(|TapState { x, y, up_time, .. }| {
-                        let dx = (x - state.position.x).abs();
-                        let dy = (y - state.position.y).abs();
-                        (dx * dx + dy * dy).sqrt() < self.vc.scaled_double_tap_slop as f64
-                            && (up_time + self.vc.multi_press_timeout.max(400) as u64 * 1000000)
-                                > state.time
-                    }) {
-                    let count = self.taps[i].count + 1;
-                    self.taps[i].count = count;
-                    self.taps[i].pointer_id = pointer.pointer_id;
-                    self.taps[i].down_time = state.time;
-                    self.taps[i].up_time = state.time;
-                    self.taps[i].x = state.position.x;
-                    self.taps[i].y = state.position.y;
+                ref mut state,
+                ..
+            }) => {
+                let pointer_id = pointer.pointer_id;
+                let position = state.position;
+                let time = state.time;
 
-                    PointerEvent::Down {
-                        button,
-                        pointer,
-                        state: PointerState { count, ..state },
-                    }
+                let slop = self.vc.scaled_double_tap_slop as f64;
+
+                if let Some(tap) =
+                    self.taps.iter_mut().find(|TapState { x, y, up_time, .. }| {
+                        let dx = (x - position.x).abs();
+                        let dy = (y - position.y).abs();
+                        (dx * dx + dy * dy).sqrt() < slop
+                            && (*up_time + self.vc.multi_press_timeout.max(400) as u64 * 1000000)
+                                > time
+                    })
+                {
+                    let count = tap.count + 1;
+                    state.count = count;
+                    tap.count = count;
+                    tap.pointer_id = pointer_id;
+                    tap.down_time = time;
+                    tap.up_time = time;
+                    tap.x = position.x;
+                    tap.y = position.y;
                 } else {
                     let s = TapState {
-                        pointer_id: pointer.pointer_id,
-                        down_time: state.time,
-                        up_time: state.time,
+                        pointer_id,
+                        down_time: time,
+                        up_time: time,
                         count: 1,
-                        x: state.position.x,
-                        y: state.position.y,
+                        x: position.x,
+                        y: position.y,
                     };
                     self.taps.push(s);
-                    PointerEvent::Down {
-                        button,
-                        pointer,
-                        state: PointerState { count: 1, ..state },
-                    }
+                    state.count = 1;
                 };
-                self.clear_expired(state.time);
-                e
+                state.scale_factor = self.scale_factor;
+                self.clear_expired(time);
             }
-            PointerEvent::Up {
-                button,
+            PointerEvent::Up(PointerButtonEvent {
                 pointer,
-                ref state,
-            } => {
-                if let Some(i) = self
+                ref mut state,
+                ..
+            }) => {
+                if let Some(tap) = self
                     .taps
-                    .iter()
-                    .position(|TapState { pointer_id, .. }| *pointer_id == pointer.pointer_id)
+                    .iter_mut()
+                    .find(|TapState { pointer_id, .. }| *pointer_id == pointer.pointer_id)
                 {
-                    self.taps[i].up_time = state.time;
-                    PointerEvent::Up {
-                        button,
-                        pointer,
-                        state: PointerState {
-                            count: self.taps[i].count,
-                            ..state.clone()
-                        },
-                    }
-                } else {
-                    e.clone()
+                    tap.up_time = state.time;
+                    state.count = tap.count;
                 }
+                state.scale_factor = self.scale_factor;
             }
             PointerEvent::Move(PointerUpdate {
                 pointer,
-                ref current,
-                ref coalesced,
-                ref predicted,
+                ref mut current,
+                ref mut coalesced,
+                ref mut predicted,
             }) => {
-                if let Some(TapState { count, .. }) = self
-                    .taps
-                    .iter()
-                    .find(
-                        |TapState {
-                             pointer_id,
-                             down_time,
-                             up_time,
-                             ..
-                         }| {
-                            *pointer_id == pointer.pointer_id && down_time == up_time
-                        },
-                    )
-                    .cloned()
-                {
-                    PointerEvent::Move(PointerUpdate {
-                        pointer,
-                        current: PointerState {
-                            count,
-                            ..current.clone()
-                        },
-                        coalesced: coalesced
-                            .iter()
-                            .cloned()
-                            .map(|u| PointerState { count, ..u })
-                            .collect(),
-                        predicted: predicted
-                            .iter()
-                            .cloned()
-                            .map(|u| PointerState { count, ..u })
-                            .collect(),
-                    })
-                } else {
-                    e
+                current.scale_factor = self.scale_factor;
+                for u in coalesced.iter_mut().chain(predicted.iter_mut()) {
+                    u.scale_factor = self.scale_factor;
                 }
+                if let Some(TapState { count, .. }) = self.taps.iter().find(
+                    |TapState {
+                         pointer_id,
+                         down_time,
+                         up_time,
+                         ..
+                     }| {
+                        *pointer_id == pointer.pointer_id && down_time == up_time
+                    },
+                ) {
+                    current.count = *count;
+                    for u in coalesced.iter_mut().chain(predicted.iter_mut()) {
+                        u.count = *count;
+                    }
+                }
+            }
+            PointerEvent::Scroll(PointerScrollEvent { ref mut state, .. })
+            | PointerEvent::Gesture(PointerGestureEvent { ref mut state, .. }) => {
+                state.scale_factor = self.scale_factor;
             }
             PointerEvent::Cancel(p) | PointerEvent::Leave(p) => {
                 self.taps
                     .retain(|TapState { pointer_id, .. }| *pointer_id != p.pointer_id);
-                e.clone()
             }
-            PointerEvent::Enter(..) | PointerEvent::Scroll { .. } => e.clone(),
+            PointerEvent::Enter(..) => {}
         }
+        e
     }
 
     /// Clear expired taps.

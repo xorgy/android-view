@@ -453,7 +453,8 @@ impl<Driver: AppDriver> ViewPeer for MasonryViewPeer<Driver> {
     ) {
         let android_ctx = ctx.view.context(&mut ctx.env);
         let scale_factor = scale_factor(&mut ctx.env, &android_ctx);
-        self.state.tap_counter = TapCounter::new(ctx.view.view_configuration(&mut ctx.env));
+        self.state.tap_counter =
+            TapCounter::new(ctx.view.view_configuration(&mut ctx.env), scale_factor);
         self.state
             .render_root
             .handle_window_event(WindowEvent::Rescale(scale_factor));

@@ -741,7 +741,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6e0f18953c66af118a70064505bd3780a226d65b06553b7293fb8933067967"
 dependencies = [
  "bitflags 2.10.0",
- "serde",
 ]
 
 [[package]]
@@ -846,7 +845,7 @@ dependencies = [
 [[package]]
 name = "masonry"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=2750659#27506598631d5daa1fc96ca89f713c5fddb235f1"
+source = "git+https://github.com/linebender/xilem?rev=de88321#de88321783e963cf4257e9b5cf9522106a8ac138"
 dependencies = [
  "accesskit",
  "dpi",
@@ -871,7 +870,7 @@ dependencies = [
 [[package]]
 name = "masonry_core"
 version = "0.3.0"
-source = "git+https://github.com/linebender/xilem?rev=2750659#27506598631d5daa1fc96ca89f713c5fddb235f1"
+source = "git+https://github.com/linebender/xilem?rev=de88321#de88321783e963cf4257e9b5cf9522106a8ac138"
 dependencies = [
  "accesskit",
  "anymap3",
@@ -1702,19 +1701,20 @@ dependencies = [
 [[package]]
 name = "tree_arena"
 version = "0.1.0"
-source = "git+https://github.com/linebender/xilem?rev=2750659#27506598631d5daa1fc96ca89f713c5fddb235f1"
+source = "git+https://github.com/linebender/xilem?rev=de88321#de88321783e963cf4257e9b5cf9522106a8ac138"
 dependencies = [
  "hashbrown 0.16.0",
 ]
 
 [[package]]
 name = "ui-events"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4c2cc34489c685d4e7a1a1f97b7b4416c5aa789892114ae77df6cd2a60f0ec4"
+checksum = "8a57da61c5700db75d28822c56068295055ec216996560af57a5d4a457914d34"
 dependencies = [
  "dpi",
  "keyboard-types",
+ "kurbo",
 ]
 
 [[package]]

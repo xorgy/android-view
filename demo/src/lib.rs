@@ -372,7 +372,7 @@ impl ViewPeer for DemoViewPeer {
             return false;
         };
 
-        if matches!(ev, PointerEvent::Up { .. }) {
+        if matches!(ev, PointerEvent::Up(..)) {
             ctx.push_static_deferred_callback(show_soft_input);
         }
 
@@ -438,9 +438,16 @@ impl ViewPeer for DemoViewPeer {
         width: jint,
         height: jint,
     ) {
-        self.tap_counter = TapCounter::new(ctx.view.view_configuration(&mut ctx.env));
+        let android_ctx = ctx.view.context(&mut ctx.env);
+        let scale_factor = {
+            let res = android_ctx.resources(&mut ctx.env);
+            let metrics = res.display_metrics(&mut ctx.env);
+            metrics.density(&mut ctx.env) as f64
+        };
+        self.tap_counter = TapCounter::new(ctx.view.view_configuration(&mut ctx.env), scale_factor);
         let editor = self.editor.editor_mut();
-        editor.set_scale(1.0);
+        #[allow(clippy::cast_possible_truncation, reason = "Unavoidable")]
+        editor.set_scale(scale_factor as f32);
         editor.set_width(Some(width as f32 - 2_f32 * text::INSET));
         self.last_drawn_generation = Default::default();
         let focused = ctx.view.is_focused(&mut ctx.env);
